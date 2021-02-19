@@ -786,7 +786,7 @@ class IVLIML(_IVLSModelBase):
         >>> from linearmodels.datasets import wage
         >>> from linearmodels.iv import IVLIML
         >>> data = wage.load()
-        >>> formula = 'np.log(wage) ~ 1 + exper + exper ** 2 + brthord + [educ ~ sibs]'
+        >>> formula = 'np.log(wage) ~ 1 + exper + I(exper**2) + brthord + [educ ~ sibs]'
         >>> mod = IVLIML.from_formula(formula, data)
         """
         parser = IVFormulaParser(formula, data)

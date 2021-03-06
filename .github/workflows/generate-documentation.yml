@@ -5,7 +5,7 @@ on:
     types: [published]
   push:
     branches:
-      - master
+      - main
 
 jobs:
   build:
@@ -42,4 +42,6 @@ jobs:
         make html
         popd
     - name: Deploy documentation
+      env:
+        GIT_TAG: ${{ github.event.release.tag_name }}
       run: source ci/push-docs-gh-pages.sh

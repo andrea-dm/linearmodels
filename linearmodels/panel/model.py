@@ -274,6 +274,7 @@ class _PanelModelBase(object):
             ACCovariance,
         )
         self._original_index = self.dependent.index.copy()
+        self._constant_index: Optional[int] = None
         self._validate_data()
         self._singleton_index: Optional[NDArray] = None
 
@@ -443,7 +444,7 @@ class _PanelModelBase(object):
                 return InvalidTestStatistic("Model contains only a constant", name=name)
 
             num_df -= 1
-            weps_const = y - float((root_w.T @ y) / (root_w.T @ root_w))
+            weps_const = cast(NDArray, y - float((root_w.T @ y) / (root_w.T @ root_w)))
 
         resid_ss = weps.T @ weps
         num = float(weps_const.T @ weps_const - resid_ss)
@@ -474,7 +475,7 @@ class _PanelModelBase(object):
                     InvalidTestStatistic("Model contains only a constant", name=name),
                     True,
                 )
-
+            assert isinstance(self._constant_index, int)
             sel[self._constant_index] = False
 
         return FInfo(sel, name, None, False)
@@ -1148,7 +1149,7 @@ class PanelOLS(_PanelModelBase):
             "{0} singleton observations dropped".format(ndropped), SingletonWarning
         )
         drop = ~retain
-        self._singleton_index = drop
+        self._singleton_index = cast(NDArray, drop)
         self.dependent.drop(drop)
         self.exog.drop(drop)
         self.weights.drop(drop)
@@ -1726,7 +1727,9 @@ class PanelOLS(_PanelModelBase):
             if not self._drop_absorbed:
                 check_absorbed(x, [str(var) for var in self.exog.vars])
             else:
-                retain = not_absorbed(x)
+                # TODO: Need to special case the constant here when determining which to retain
+                # since we always want to retain the constant if present
+                retain = not_absorbed(x, self._constant, self._constant_index)
                 if not retain:
                     raise ValueError(
                         "All columns in exog have been fully absorbed by the included"
@@ -1742,6 +1745,13 @@ class PanelOLS(_PanelModelBase):
                         AbsorbingEffectWarning,
                     )
                     x = x[:, retain]
+                    # Update constant index loc
+                    if self._constant:
+                        assert isinstance(self._constant_index, int)
+                        self._constant_index = int(
+                            np.argwhere(np.array(retain) == self._constant_index)
+                        )
+
                     # Adjust exog
                     self.exog = PanelData(self.exog.dataframe.iloc[:, retain])
                     x_effects = x_effects[retain]
@@ -2280,9 +2290,9 @@ class FirstDifferenceOLS(_PanelModelBase):
         if np.all(self.weights.values2d == 1.0):
             w = root_w = np.ones_like(y)
         else:
-            w = 1.0 / self.weights.values3d
+            w = cast(NDArray, 1.0 / self.weights.values3d)
             w = w[:, :-1] + w[:, 1:]
-            w = 1.0 / w
+            w = cast(NDArray, 1.0 / w)
             w_frame = panel_to_frame(
                 w,
                 self.weights.panel.items,

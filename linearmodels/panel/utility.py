@@ -5,6 +5,7 @@ from typing import (
     NamedTuple,
     Optional,
     Sequence,
+    Set,
     Tuple,
     TypeVar,
     Union,
@@ -451,7 +452,9 @@ def check_absorbed(
         )
 
 
-def not_absorbed(x: NDArray) -> List[int]:
+def not_absorbed(
+    x: NDArray, has_constant: bool = False, loc: Optional[int] = None
+) -> List[int]:
     """
     Construct a list of the indices of regressors that are not absorbed
 
@@ -459,6 +462,10 @@ def not_absorbed(x: NDArray) -> List[int]:
     ----------
     x : ndarray
         Regressor matrix to check
+    has_constant : bool
+        Flag indicating that x has a constant column
+    loc : int
+        The location of the constant column
 
     Returns
     -------
@@ -467,9 +474,18 @@ def not_absorbed(x: NDArray) -> List[int]:
     """
     if np.linalg.matrix_rank(x) == x.shape[1]:
         return list(range(x.shape[1]))
+    if has_constant:
+        assert isinstance(loc, int)
+        check = [i for i in range(x.shape[1]) if i != loc]
+        const = x[:, [loc]]
+        sub = x[:, check]
+        x = sub - const @ np.linalg.lstsq(const, sub, rcond=None)[0]
     xpx = x.T @ x
     vals, vecs = np.linalg.eigh(xpx)
     if vals.max() == 0.0:
+        if has_constant:
+            assert isinstance(loc, int)
+            return [loc]
         return []
 
     tol = vals.max() * x.shape[1] * np.finfo(np.float64).eps
@@ -478,7 +494,10 @@ def not_absorbed(x: NDArray) -> List[int]:
     q, r = np.linalg.qr(x)
     threshold = np.sort(np.abs(np.diag(r)))[nabsorbed]
     drop = np.where(np.abs(np.diag(r)) < threshold)[0]
-    retain = set(range(x.shape[1])).difference(drop)
+    retain: Set[int] = set(range(x.shape[1])).difference(drop)
+    if has_constant:
+        assert isinstance(loc, int)
+        retain.update({loc})
     return sorted(retain)
 
 
@@ -556,11 +575,12 @@ def generate_panel_data(
     k += int(const)
     x = rng.standard_normal((k, t, n))
     beta = np.arange(1, k + 1)[:, None, None] / k
-    y = (
+    y: NDArray = (
         (x * beta).sum(0)
         + rng.standard_normal((t, n))
         + 2 * rng.standard_normal((1, n))
     )
+
     w = rng.chisquare(5, (t, n)) / 5
     c: Optional[NDArray] = None
     cats = [f"cat.{i}" for i in range(other_effects)]
@@ -582,9 +602,11 @@ def generate_panel_data(
 
     if missing > 0:
         locs = rng.choice(n * t, int(n * t * missing))
-        y.flat[locs] = np.nan
+        # TODO:: Fix typing in later version of numpy
+        y.flat[locs] = np.nan  # type: ignore
         locs = rng.choice(n * t * k, int(n * t * k * missing))
-        x.flat[locs] = np.nan
+        # TODO:: Fix typing in later version of numpy
+        x.flat[locs] = np.nan  # type: ignore
 
     entities = [f"firm{i}" for i in range(n)]
     time = date_range("1-1-1900", periods=t, freq="A-DEC")
